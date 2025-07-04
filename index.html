@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Slideshow and Music (16:9 Fullscreen)</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: sans-serif;
+            background-color: #222;
+            color: white;
+            overflow: hidden;
+        }
+        #waitScreen, #slideScreen {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            background-size: cover;
+            background-position: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 4vw;
+            text-shadow: 2px 2px 5px black;
+            text-align: center;
+        }
+        #slideContainer {
+            position: relative;
+            width: 100%;
+            max-width: 1600px;
+            aspect-ratio: 16/9;
+            margin: auto;
+            background-color: black;
+            overflow: hidden;
+        }
+        #slideScreen img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            position: absolute;
+            display: none;
+        }
+        #slideScreen img.active {
+            display: block;
+        }
+        #settings {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            height: 100%;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+        #settingsContent {
+            background-color: #333;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 800px;
+            width: 95%;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            grid-gap: 20px;
+            align-items: center;
+        }
+        input[type="file"] {
+            width: 100%;
+            height: 100px;
+            border: 2px solid white;
+            border-radius: 10px;
+            background-color: #ccc;
+        }
+        input[type="time"], input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            font-size: 1em;
+        }
+        button {
+            padding: 20px;
+            font-size: 1.5em;
+            font-weight: bold;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        #startButton {
+            background-color: #aaff00;
+            color: red;
+        }
+        #resetButton {
+            background-color: red;
+            color: #aaff00;
+        }
+        .full-span {
+            grid-column: span 4;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="settings">
+    <div id="settingsContent">
+        <div>
+            <input type="file" id="slide1" accept="image/*">
+        </div>
+        <div>
+            <input type="file" id="slide2" accept="image/*">
+        </div>
+        <div>
+            <input type="file" id="slide3" accept="image/*">
+        </div>
+        <div>
+            <input type="file" id="audioFile" accept="audio/*">
+        </div>
+
+        <div class="full-span"><b>Music Start Time</b></div>
+        <div>S<br><input type="time" id="audioTime"></div>
+        <div class="full-span"><b>Slideshow Time</b></div>
+        <div>S<br><input type="time" id="slideStartTime"></div>
+        <div>G<br><input type="time" id="slideEndTime"></div>
+        <div>
+            <b>Slide Interval (seconds)</b><br>
+            <input type="number" id="slideIntervalTime" value="3" min="1">
+        </div>
+
+        <div class="full-span">
+            <button id="startButton" onclick="startMonitoring()">START</button>
+        </div>
+        <div class="full-span">
+            <button id="resetButton" onclick="location.reload()">RESET</button>
+        </div>
+    </div>
+</div>
+
+<div id="waitScreen" style="display:none;">
+    <div>Waiting...</div>
+</div>
+
+<div id="slideScreen" style="display:none;">
+    <div id="slideContainer">
+        <img id="img1" alt="">
+        <img id="img2" alt="">
+        <img id="img3" alt="">
+    </div>
+    <audio id="bgm" controls style="display:none;"></audio>
+</div>
+
+<script>
+    let slideStartTime, slideEndTime, audioStartTime, slideIntervalTime;
+    let startedSlide = false;
+    let startedAudio = false;
+    let slideInterval;
+    let db;
+
+    const request = indexedDB.open('SlideshowDB', 1);
+
+    request.onupgradeneeded = function (event) {
+        db = event.target.result;
+        db.createObjectStore('files');
+    };
+
+    request.onsuccess = function (event) {
+        db = event.target.result;
+        loadFiles();
+    };
+
+    function loadFiles() {
+        const transaction = db.transaction(['files'], 'readonly');
+        const store = transaction.objectStore('files');
+
+        store.get('slide1').onsuccess = function (e) {
+            if (e.target.result) document.getElementById('img1').src = e.target.result;
+        };
+        store.get('slide2').onsuccess = function (e) {
+            if (e.target.result) document.getElementById('img2').src = e.target.result;
+        };
+        store.get('slide3').onsuccess = function (e) {
+            if (e.target.result) document.getElementById('img3').src = e.target.result;
+        };
+        store.get('audioFile').onsuccess = function (e) {
+            if (e.target.result) document.getElementById('bgm').src = e.target.result;
+        };
+    }
+
+    ['slide1', 'slide2', 'slide3', 'audioFile'].forEach(id => {
+        document.getElementById(id).addEventListener('change', function (event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const transaction = db.transaction(['files'], 'readwrite');
+                const store = transaction.objectStore('files');
+                store.put(e.target.result, id);
+
+                if (id.startsWith('slide')) {
+                    const imgId = 'img' + id.slice(-1);
+                    document.getElementById(imgId).src = e.target.result;
+                } else if (id === 'audioFile') {
+                    document.getElementById('bgm').src = e.target.result;
+                }
+            };
+            reader.readAsDataURL(file);
+        });
+    });
+
+    function startMonitoring() {
+        slideStartTime = document.getElementById('slideStartTime').value;
+        slideEndTime = document.getElementById('slideEndTime').value;
+        audioStartTime = document.getElementById('audioTime').value;
+        slideIntervalTime = parseInt(document.getElementById('slideIntervalTime').value, 10) * 1000;
+
+        if (!slideStartTime || !slideEndTime || !audioStartTime) {
+            alert('Please set all times.');
+            return;
+        }
+
+        if (document.fullscreenEnabled) {
+            document.documentElement.requestFullscreen();
+        }
+
+        document.getElementById('settings').style.display = 'none';
+        document.getElementById('waitScreen').style.display = 'flex';
+
+        setInterval(checkTime, 1000);
+    }
+
+    function checkTime() {
+        const now = new Date();
+        const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+        if (currentTime >= slideStartTime && currentTime < slideEndTime) {
+            if (!startedSlide) {
+                startSlideshow();
+                startedSlide = true;
+            }
+        } else {
+            if (startedSlide) {
+                stopSlideshow();
+                startedSlide = false;
+            }
+        }
+
+        if (currentTime === audioStartTime && !startedAudio) {
+            document.getElementById('bgm').play();
+            startedAudio = true;
+        }
+    }
+
+    function startSlideshow() {
+        document.getElementById('waitScreen').style.display = 'none';
+        document.getElementById('slideScreen').style.display = 'block';
+
+        const slides = document.querySelectorAll('#slideScreen img');
+        let currentIndex = 0;
+
+        slides.forEach(slide => slide.classList.remove('active'));
+        slides[currentIndex].classList.add('active');
+
+        slideInterval = setInterval(() => {
+            slides[currentIndex].classList.remove('active');
+            currentIndex = (currentIndex + 1) % slides.length;
+            slides[currentIndex].classList.add('active');
+        }, slideIntervalTime);
+    }
+
+    function stopSlideshow() {
+        clearInterval(slideInterval);
+        document.getElementById('slideScreen').style.display = 'none';
+        document.getElementById('waitScreen').style.display = 'flex';
+    }
+</script>
+
+</body>
+</html>
